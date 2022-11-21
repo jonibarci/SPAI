@@ -1,0 +1,22 @@
+Music therapy session:
+	You follow the professor ==> polyphonic music of the same notes.
+URGENT steps:
+	- use librosa NMF
+	- figure out functions to get onset times and f0 estimate
+	- ask about the functions and how to improve
+	==> 
+		get the maximum of the W[:,n] and set it to f0
+		use librosa peak_pick on H[n] to get the onsets of the f0
+
+QUESTIONS:
+	Do I have to implement the NMF myself
+	Do I have to implement peak_picking myself
+	Are these steps reasonable?
+		get the maximum of the W[:,n] and set it to f0
+		use librosa peak_pick on H[n] to get the onsets of the f0
+	
+	Another method:
+		onsets and autocorrelation ==> could it be better?
+	
+
+
