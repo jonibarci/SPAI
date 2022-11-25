@@ -1,0 +1,18 @@
+
+Steps for NMF:
+	add dictionary to convert estimated notes to MIDI values.
+	estimate tempo
+	create music sheet
+
+Steps for correlation method:
+	Apply NMF
+	For each component apply FastLSR to the estimated data np
+	
+		for n in range(n_components):
+			# Re-create the STFT of a single NMF component. row of W with the column of H
+	    	Y = np.outer(W[:,n],H[n]) 
+	
+	    	# Transform the STFT into the time domain.
+	    	y = librosa.istft(Y* X_phase)
+	    	# APPLY FAST NLS ESTIMATOR ON THIS Y
+
