@@ -1,12 +1,10 @@
 #!/Users/keremokyay/miniforge3/envs/spai/bin/python
 import numpy as np
+import re
+import math
+import pandas as pd
 import librosa 
-import sklearn
-import librosa.display
-import matplotlib.pyplot as plt
-import IPython.display as ipd
 import music21
-from scipy import signal
 
 ## Signal parametes
 fs = 22050      # sample frequency
@@ -117,9 +115,9 @@ def window(duration,x,sr):
     s = music21.stream.Stream()
     
     # take 2 second segments from the recording and apply NMF on them
-    for i in range(2,int(duration),2):
+    for i in range(1,int(duration),1):
         # take the next 2 second segment
-        curr_x = x[(i-2)*sr:sr*i] 
+        curr_x = x[(i-1)*sr:sr*i] 
         # apply STFT
         S = librosa.stft(curr_x,n_fft=int(sr/8))
 
@@ -138,7 +136,7 @@ def window(duration,x,sr):
         # decompose spectrogram S to magnitude and phase
         X, X_phase = librosa.magphase(S)
         # use the Magnitude spectrum of S to do NMF, fit=True, components are estimated from X
-        W, H = librosa.decompose.decompose(X,n_components=cps, sort=True, fit=True)
+        W, H = librosa.decompose.decompose(X,n_components=cps, fit=True)
         # using W and onset times, populate the note_info
         note_info,s = add_to_note_info(cps,W,H,S,i,sr,note_info,s,onset_times)
     return note_info,s
@@ -147,8 +145,23 @@ def window(duration,x,sr):
 
 
 if __name__=='__main__':
+    path = "/Users/keremokyay/masters/SPAI/Project-sessions/data/drum_mic.wav"
+    test_path = "/Users/keremokyay/Documents/labeled_data_SPAI/part1.txt"
+    f = open(test_path)
+    labels = []
+    for line in f:
+        line = line.strip('\n')
+        row = re.split(';', line)
+        row = row[:-1]
+        for i in range(3):
+            if i == 2:
+                row[i] = int(row[i])
+            elif len(row[i]) >=7:
+                row[i] = row[i][:-4]
+                row[i] = round(float(row[i]),2)
+        labels += [row]
     # load the file
-    x,sr = librosa.load("/Users/keremokyay/masters/SPAI/Project-sessions/data/drum_mic.wav")
+    x,sr = librosa.load(path)
     
     # calculate duration to loop through
     duration = len(x) / sr
@@ -166,10 +179,48 @@ if __name__=='__main__':
     onset_frames = librosa.onset.onset_detect(x, sr=sr, wait=1, pre_avg=1, post_avg=1, pre_max=1, post_max=1)
     onset_times = librosa.frames_to_time(onset_frames)
     #print(note_info)
-    for i in note_info:
-        print(i)
-    print(len(note_info))
-    print(len(onset_times))
+
+
+    # find the onsets that are in +- 0.1 
+    correct_onsets = 0
+    correct_onsets_within_02 = 0
+
+    correct_notes = 0
+    correct_notes_within_20 = 0
+
+    correct_duration = 0
+    correct_duration_within_01 = 0
+
+    for label in labels:
+        onset = label[0]
+        duration = label[1] - label[0]
+        note = label[2]
+
+        for prediction in note_info:
+            onset_pred = prediction[0]
+            duration_pred = prediction[1] - prediction[0]
+            note_pred = prediction[2]
+
+            if onset_pred == onset:
+                correct_onsets += 1
+            elif np.abs(onset - onset_pred) <= 0.2: 
+                correct_onsets_within_02 +=1
+            if note == note_pred:
+                correct_notes += 1
+            elif np.abs(note-note_pred) <=20:
+                correct_notes_within_20 += 1
+            if duration == duration_pred:
+                correct_duration += 1
+            elif np.abs(note-note_pred) <=0.1:
+                correct_duration_within_01 += 1
+
+    print("total number of predicted onsets:      ", len(note_info), "total number of ground truth onsets: ", len(labels))
+    print("number of correct onsets predicted:    ", correct_onsets, " number of onsets within 0.2 seconds of the ground truth: ", correct_onsets_within_02)
+    print("number of correct predicted notes:     ", correct_notes, " number of notes within 20 Hz of the ground truth: ", correct_notes_within_20 )
+    print("number of correct predicted duraitons: ", correct_duration, " number of durations within 0.1 seconds of the ground truth: ", correct_duration_within_01 )
+
+
+                
     
     #s.show()
     #s.write('midi', fp='midi_drum.mid')
