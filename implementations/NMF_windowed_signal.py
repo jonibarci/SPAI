@@ -4,24 +4,26 @@ import math
 import pandas as pd
 import librosa 
 import music21
-
+window_size = 1
 ## Signal parametes
 fs = 22050      # sample frequency
 
 ## STFT parameters
 N = 1024        # frame size
-q = 0.5         # overlap factor
+q = 0.5         # overlap factor for the window. some people use 0.9
 
 ## NINOS2 parameters
 lambda_ = 1     # compression ratio
-gamma_ = 1      # fraction of frequency bins used
+gamma_ = 1      # fraction of frequency bins used, keeps everything. 0.1 would mean keeping the lowest 10 percent.
 
 ## peak picking parameters 
-alpha_ = 1      # before maximum
+alpha_ = 1      # before maximum, 
 beta_ = 1       # after maximum
-a = 3           # before average
+a = 3           # before average, 
 b = 2           # after average
-delta_ = 1     # offset from neighboorhood average
+delta_ = 0.5     # offset from neighboorhood average, how far from the average you want.
+
+# NORMALIZE NINOS
 
 def ninos_func(X, lambda_, gamma_):
 
@@ -39,7 +41,7 @@ def ninos_func(X, lambda_, gamma_):
         #ninos[i] = (np.linalg.norm(Y[:,i])**2)/(np.power(J,1/4)*sum(abs(Y[:,i])**4)**(1./4))  
         ninos[i] = np.linalg.norm(Y[:,i])*((np.linalg.norm(Y[:,i])/sum(abs(Y[:,i])**4)**(1./4))-1)/(np.power(J,1/4)-1)
 
-    return ninos
+    return ninos 
 
 def peak_pick(ninos, alpha_, beta_, a, b, delta_, N, q):
     
@@ -67,13 +69,14 @@ def add_to_note_info(cps,W,H,S,segment,sr, note_info,s,onset_times):
 
     # sort the array based on increasing onset time
     temp_note_info= sorted(temp_note_info)
-    # sort the onsets from Wannes' code
+    # sort the onsets from Wannes' code increasing onset time
     onset_times = sorted(onset_times)
     # use the info in temp array to index Wannes' onsets
     for info in temp_note_info:
         # error correct the onsets, use the estimated onset from H to index the onsets from
         # Wannes' code
-        note_info += [[(segment-2)+round(onset_times[info[1]],2),round(info[2])]]
+        # adds onset, note
+        note_info += [[(segment-window_size)+round(onset_times[info[1]],2),round(info[2])]]
 
     # calculate durations
     note_info = sorted(note_info)
@@ -95,7 +98,10 @@ def add_to_note_info(cps,W,H,S,segment,sr, note_info,s,onset_times):
     # check if the note  info aray has elements
     if len(note_info) != 0:
         # using the last onset handle the last element in the note info array
-        note_info[-1] += [round(segment-last_onset,2)]
+        if len(temp_note_info) == 1:
+            note_info[-1] += [round(segment-note_info[-1][0],2)]
+        else:
+            note_info[-1] += [round(segment-last_onset,2)]
 
         # append the notes to the music stream
         # TODO: adding the duration and other attributes for the midi file
@@ -108,44 +114,70 @@ def add_to_note_info(cps,W,H,S,segment,sr, note_info,s,onset_times):
 
 
 
-def window(duration,x,sr):
+def window(duration,x,sr,tempo):
     # variables to return when transcription is done
     note_info = []
     s = music21.stream.Stream()
-    
-    # take 2 second segments from the recording and apply NMF on them
-    for i in range(1,int(duration),1):
+    ##====================================== 
+    ## take the next 2 second segment
+    #curr_x = x 
+    ## apply STFT
+    #S = librosa.stft(curr_x,n_fft=N)
+
+
+    ## Code from Wannes for onset detection
+    #odf = ninos_func(S, lambda_, gamma_)
+    #onsets = peak_pick(odf, alpha_, beta_, a, b, delta_, N, q)
+    #onset_times = librosa.frames_to_time(onsets)
+
+    ## estimate reduced rank R for NMF
+    #cps = len(onset_times)
+    ## if there are no onsets continue to the next iteration
+    ## decompose spectrogram S to magnitude and phase
+    #X, X_phase = librosa.magphase(S)
+    ## use the Magnitude spectrum of S to do NMF, fit=True, components are estimated from X
+    #W, H = librosa.decompose.decompose(X,n_components=cps, fit=True)
+    ## using W and onset times, populate the note_info
+    #note_info,s = add_to_note_info(cps,W,H,S,1,sr,note_info,s,onset_times)
+    #====================================== 
+    #take 2 second segments from the recording and apply NMF on them
+    for i in range(window_size,round(duration)+1,window_size):
         # take the next 2 second segment
-        curr_x = x[(i-1)*sr:sr*i] 
+        curr_x = x[(i-window_size)*sr:sr*i] 
         # apply STFT
-        S = librosa.stft(curr_x,n_fft=int(sr/8))
+        # TODO: FIND OUT A GOOD N_FFT FOR STFT
+        # n_fft = number of fft bins This parameter specifies the length of the Fast Fourier Transform (FFT) 
+        # window that is used to analyze each frame of the audio signal
+        # should be set to largest expected periodicity.
+        S1 = librosa.stft(curr_x,n_fft=int(sr/8))
+
 
 
         # Code from Wannes for onset detection
-        t = librosa.times_like(S,hop_length=N)
-        odf = ninos_func(S, lambda_, gamma_)
+        odf = ninos_func(S1, lambda_, gamma_)
         onsets = peak_pick(odf, alpha_, beta_, a, b, delta_, N, q)
         onset_times = librosa.frames_to_time(onsets)
 
         # estimate reduced rank R for NMF
         cps = len(onset_times)
+        print(cps)
         # if there are no onsets continue to the next iteration
         if cps == 0:
             continue
         # decompose spectrogram S to magnitude and phase
-        X, X_phase = librosa.magphase(S)
+        X, X_phase = librosa.magphase(S1)
         # use the Magnitude spectrum of S to do NMF, fit=True, components are estimated from X
         W, H = librosa.decompose.decompose(X,n_components=cps, fit=True)
         # using W and onset times, populate the note_info
-        note_info,s = add_to_note_info(cps,W,H,S,i,sr,note_info,s,onset_times)
+        note_info,s = add_to_note_info(cps,W,H,S1,i,sr,note_info,s,onset_times)
     return note_info,s
 
 
 
 
 if __name__=='__main__':
-    path = "/Users/keremokyay/masters/SPAI/Project-sessions/data/drum_mic.wav"
-    test_path = "/Users/keremokyay/Documents/labeled_data_SPAI/part1.txt"
+    path = "/Users/keremokyay/masters/SPAI/Project-sessions/data/drum_mic2.wav"
+    test_path = "/Users/keremokyay/Documents/labeled_data_SPAI/part2.txt"
     f = open(test_path)
     labels = []
     for line in f:
@@ -168,16 +200,17 @@ if __name__=='__main__':
     # calculate tempo 
     tempo, beats = librosa.beat.beat_track(y=x,sr=sr)
     tempo=int(2*round(tempo/2))
+    print(tempo)
     # create the music21 object for tempo
     mm = music21.tempo.MetronomeMark(referent='quarter', number=tempo)
 
     # start the transcription
-    note_info,s = window(duration,x,sr)
+    note_info,s = window(duration,x,sr,tempo)
 
     s.append(mm)
     onset_frames = librosa.onset.onset_detect(x, sr=sr, wait=1, pre_avg=1, post_avg=1, pre_max=1, post_max=1)
     onset_times = librosa.frames_to_time(onset_frames)
-    #print(note_info)
+    print(note_info)
 
 
     # find the onsets that are in +- 0.1 
@@ -200,7 +233,7 @@ if __name__=='__main__':
             duration_pred = prediction[1] - prediction[0]
             note_pred = prediction[2]
 
-            if onset_pred == onset:
+            if round(onset_pred,1) == round(onset,1):
                 correct_onsets += 1
             elif np.abs(onset - onset_pred) <= 0.2: 
                 correct_onsets_within_02 +=1
