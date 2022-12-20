@@ -1,10 +1,13 @@
 import numpy as np
+from scipy import signal
 import re
 import math
 import pandas as pd
 import librosa 
 import music21
-window_size = 1
+
+# Set the window size here
+window_size = 10
 ## Signal parametes
 fs = 22050      # sample frequency
 
@@ -22,11 +25,9 @@ beta_ = 1       # after maximum
 a = 3           # before average, 
 b = 2           # after average
 delta_ = 0.5     # offset from neighboorhood average, how far from the average you want.
-
 # NORMALIZE NINOS
 
 def ninos_func(X, lambda_, gamma_):
-
     ## Calculate number of frequency bins
     J = int(gamma_*(X.shape[0]-1)) 
 
@@ -51,7 +52,8 @@ def peak_pick(ninos, alpha_, beta_, a, b, delta_, N, q):
     return librosa.util.peak_pick(ninos, alpha_,beta_,a,b,delta_,Theta_)
 
 
-def add_to_note_info(cps,W,H,S,segment,sr, note_info,s,onset_times):
+def add_to_note_info(cps,W,H,S,segment,sr, note_info,s,onset_times,X_phase):
+    global ONSETS
     # for every component
     temp_note_info = []
     for n in range(cps):
@@ -60,8 +62,9 @@ def add_to_note_info(cps,W,H,S,segment,sr, note_info,s,onset_times):
         # get the corresponding temporal profile
         temporal = H[n]
 
-        # get the highest activation in the spectral profile
+        ## get the highest activation in the spectral profile
         note = np.argmax(spectral) * (sr/2)/S.shape[0]
+
         # get the highest activation in temporal profile
         onset = np.argmax(temporal)/S.shape[1]
         # add the info to the temporary array
@@ -103,12 +106,6 @@ def add_to_note_info(cps,W,H,S,segment,sr, note_info,s,onset_times):
         else:
             note_info[-1] += [round(segment-last_onset,2)]
 
-        # append the notes to the music stream
-        # TODO: adding the duration and other attributes for the midi file
-        for i in note_info:
-            n = music21.note.Note(i[1]) 
-            s.append(n)
-
     return note_info,s
         
 
@@ -118,38 +115,12 @@ def window(duration,x,sr,tempo):
     # variables to return when transcription is done
     note_info = []
     s = music21.stream.Stream()
-    ##====================================== 
-    ## take the next 2 second segment
-    #curr_x = x 
-    ## apply STFT
-    #S = librosa.stft(curr_x,n_fft=N)
-
-
-    ## Code from Wannes for onset detection
-    #odf = ninos_func(S, lambda_, gamma_)
-    #onsets = peak_pick(odf, alpha_, beta_, a, b, delta_, N, q)
-    #onset_times = librosa.frames_to_time(onsets)
-
-    ## estimate reduced rank R for NMF
-    #cps = len(onset_times)
-    ## if there are no onsets continue to the next iteration
-    ## decompose spectrogram S to magnitude and phase
-    #X, X_phase = librosa.magphase(S)
-    ## use the Magnitude spectrum of S to do NMF, fit=True, components are estimated from X
-    #W, H = librosa.decompose.decompose(X,n_components=cps, fit=True)
-    ## using W and onset times, populate the note_info
-    #note_info,s = add_to_note_info(cps,W,H,S,1,sr,note_info,s,onset_times)
-    #====================================== 
     #take 2 second segments from the recording and apply NMF on them
-    for i in range(window_size,round(duration)+1,window_size):
+    for i in range(window_size,round(duration)+4,window_size):
         # take the next 2 second segment
         curr_x = x[(i-window_size)*sr:sr*i] 
         # apply STFT
-        # TODO: FIND OUT A GOOD N_FFT FOR STFT
-        # n_fft = number of fft bins This parameter specifies the length of the Fast Fourier Transform (FFT) 
-        # window that is used to analyze each frame of the audio signal
-        # should be set to largest expected periodicity.
-        S1 = librosa.stft(curr_x,n_fft=int(sr/8))
+        S1 = librosa.stft(curr_x)
 
 
 
@@ -160,24 +131,25 @@ def window(duration,x,sr,tempo):
 
         # estimate reduced rank R for NMF
         cps = len(onset_times)
-        print(cps)
+        #print(cps)
         # if there are no onsets continue to the next iteration
         if cps == 0:
             continue
         # decompose spectrogram S to magnitude and phase
         X, X_phase = librosa.magphase(S1)
         # use the Magnitude spectrum of S to do NMF, fit=True, components are estimated from X
-        W, H = librosa.decompose.decompose(X,n_components=cps, fit=True)
+        W, H = librosa.decompose.decompose(X,n_components=cps)
         # using W and onset times, populate the note_info
-        note_info,s = add_to_note_info(cps,W,H,S1,i,sr,note_info,s,onset_times)
+        note_info,s = add_to_note_info(cps,W,H,S1,i,sr,note_info,s,onset_times,X_phase)
     return note_info,s
 
 
 
 
 if __name__=='__main__':
-    path = "/Users/keremokyay/masters/SPAI/Project-sessions/data/drum_mic2.wav"
-    test_path = "/Users/keremokyay/Documents/labeled_data_SPAI/part2.txt"
+    # put the path of the labelled data and the audio recording.
+    path = "/Users/keremokyay/masters/SPAI/Project-sessions/data/Set1/Mic1_002.wav"
+    test_path = "/Users/keremokyay/Documents/labeled_data_SPAI/part1.txt"
     f = open(test_path)
     labels = []
     for line in f:
@@ -191,26 +163,23 @@ if __name__=='__main__':
                 row[i] = row[i][:-4]
                 row[i] = round(float(row[i]),2)
         labels += [row]
+    f.close()
     # load the file
     x,sr = librosa.load(path)
     
     # calculate duration to loop through
-    duration = len(x) / sr
+    duration = len(x) / sr 
 
     # calculate tempo 
     tempo, beats = librosa.beat.beat_track(y=x,sr=sr)
     tempo=int(2*round(tempo/2))
-    print(tempo)
     # create the music21 object for tempo
     mm = music21.tempo.MetronomeMark(referent='quarter', number=tempo)
 
     # start the transcription
     note_info,s = window(duration,x,sr,tempo)
-
+    # add the tempo to music21 stream
     s.append(mm)
-    onset_frames = librosa.onset.onset_detect(x, sr=sr, wait=1, pre_avg=1, post_avg=1, pre_max=1, post_max=1)
-    onset_times = librosa.frames_to_time(onset_frames)
-    print(note_info)
 
 
     # find the onsets that are in +- 0.1 
@@ -223,6 +192,9 @@ if __name__=='__main__':
     correct_duration = 0
     correct_duration_within_01 = 0
 
+    close_preds = []
+
+    # this is not a good comparison, just to see for myself
     for label in labels:
         onset = label[0]
         duration = label[1] - label[0]
@@ -234,25 +206,38 @@ if __name__=='__main__':
             note_pred = prediction[2]
 
             if round(onset_pred,1) == round(onset,1):
+                temp_dur = round(duration,2)
+                label[1] = label[2]
+                label[2] = temp_dur
+                close_preds += [[prediction, label]]
                 correct_onsets += 1
             elif np.abs(onset - onset_pred) <= 0.2: 
                 correct_onsets_within_02 +=1
             if note == note_pred:
                 correct_notes += 1
-            elif np.abs(note-note_pred) <=20:
+            elif np.abs(note-note_pred) <=40:
                 correct_notes_within_20 += 1
             if duration == duration_pred:
                 correct_duration += 1
             elif np.abs(note-note_pred) <=0.1:
                 correct_duration_within_01 += 1
-
     print("total number of predicted onsets:      ", len(note_info), "total number of ground truth onsets: ", len(labels))
     print("number of correct onsets predicted:    ", correct_onsets, " number of onsets within 0.2 seconds of the ground truth: ", correct_onsets_within_02)
-    print("number of correct predicted notes:     ", correct_notes, " number of notes within 20 Hz of the ground truth: ", correct_notes_within_20 )
+    print("number of correct predicted notes:     ", correct_notes, " number of notes within 40 Hz of the ground truth: ", correct_notes_within_20 )
     print("number of correct predicted duraitons: ", correct_duration, " number of durations within 0.1 seconds of the ground truth: ", correct_duration_within_01 )
 
+    # put the text file name you want the predictions to be written
+    f = open("set1.txt","w")
+    for i in note_info:
+        # uncomment these 2 following lines if you want to add the note info to the music21 stream
+        #note = music21.note.Note(librosa.hz_to_midi(i[0])) 
+        #s.append(note)
 
-                
-    
+        k = str(round(i[0]*fs)) +" "+ str(round((i[0]+i[2])*fs))+" "+ str(i[1])
+        f.write(str(k))
+        f.write("\n")
+
+    f.close()
+    print(close_preds)
+    # uncomment this line if you want to see the music sheet
     #s.show()
-    #s.write('midi', fp='midi_drum.mid')
