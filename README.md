@@ -21,7 +21,7 @@ methods in the field. We then proceed to discuss the three main stages
 of our proposed process: blind source separation, onset detection and
 automatic music transcription. We explore approaches including principal
 component analysis (PCA), independent component analysis (ICA),
-NINOS$^2$ algorithm and Non-Negative Matrix Factorization (NMF).
+NINOS^2 algorithm and Non-Negative Matrix Factorization (NMF).
 
 # Conclusion 
 
